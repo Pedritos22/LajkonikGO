@@ -1,0 +1,35 @@
+# Środowisko wirtualne Pythona
+.venv/
+venv/
+env/
+ENV/
+
+# Pliki tymczasowe i pamięć podręczna Pythona
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyCharm / IDE
+.idea/
+.vscode/
+
+# Zmienne środowiskowe
+.env
+.env.*
+!.env.example
+
+# Testy i pokrycie kodu
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Bazy danych
+*.sqlite3
+*.db
+
+# Migracje bazodanowe (katalog migrations/)
+# Domyślnie pliki migracji POWINNY trafiać do repozytorium.
+# Jeśli używasz narzędzia takiego jak Alembic lub Django,
+# upewnij się, że nie ignorujesz plików generowanych w migrations/,
+# poza ewentualnym cache:
+migrations/__pycache__/
