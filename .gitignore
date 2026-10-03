@@ -17,6 +17,7 @@ doc/api/
 
 # dotenv environment variables file
 .env*
+!.env.example
 
 # Avoid committing generated Javascript files:
 *.dart.js
@@ -205,3 +206,15 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/dart,python
+
+# Local container tooling and certificates
+*.pem
+*.key
+mobile/android/local.properties
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+
+# Flutter application source and dependency lock are not generated artifacts.
+!mobile/lib/
+!mobile/pubspec.lock
