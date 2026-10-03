@@ -1,0 +1,4 @@
+fastapi[standard]
+sqlalchemy>=2.0
+alembic
+psycopg[binary]
