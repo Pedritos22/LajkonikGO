@@ -15,7 +15,8 @@ import app.models
 
 config = context.config
 
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# ConfigParser treats '%' as interpolation, including URL-encoded credentials.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
