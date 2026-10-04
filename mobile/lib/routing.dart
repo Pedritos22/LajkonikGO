@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'game_api.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -76,12 +78,7 @@ class PlannedRoute {
 class RoutingService {
   RoutingService({http.Client? client, String? baseUrl})
     : client = client ?? http.Client(),
-      baseUrl =
-          baseUrl ??
-          const String.fromEnvironment(
-            'API_BASE_URL',
-            defaultValue: 'http://127.0.0.1:8000',
-          );
+      baseUrl = baseUrl ?? apiBaseUrl;
   final http.Client client;
   final String baseUrl;
 

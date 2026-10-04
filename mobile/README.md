@@ -24,12 +24,21 @@ komputer może zwracać przybliżoną pozycję zamiast GPS.
 - Punkt przygody można obrócić gestem lub przyciskiem, aby dostać 50 punktów.
   Pozycja musi być świeża (30 s), mieć dokładność do 25 m, a odległość wraz
   z marginesem dokładności mieścić się w 45 m. Kolejny obrót po 5 minutach.
-- Nagrody zapisują się lokalnie. Nie są zabezpieczonym systemem rankingowym;
-  produkcyjne nagrody wymagają kont i weryfikacji po stronie serwera.
+- Nagrody, historia obrotów, saldo oraz zakup i wybór wyglądu zapisują się
+  w PostgreSQL przez backend. Serwer sprawdza lokalizację, czas między obrotami
+  i koszt; żądania mają identyfikatory zapobiegające podwójnemu naliczeniu.
 - W **Kolekcji** można za 50 punktów odblokować na stałe znacznik Lajkonika.
   Zakup od razu wybiera nowy wygląd. Powrót do zwykłego znacznika i ponowny
-  wybór Lajkonika są darmowe. Wyglądy demo i GPS są oddzielne; zapis lokalny
+  wybór Lajkonika są darmowe. Wyglądy demo i GPS są oddzielne; konto na serwerze
   zachowuje zakup, wybór oraz pozostałe punkty po odświeżeniu.
+- Automatycznie tworzymy konto gościa. W przeglądarce pozostaje tylko klucz
+  sesji, osobny dla adresu API. Usunięcie danych przeglądarki oznacza utratę
+  dostępu do tego konta, nie usunięcie jego danych w bazie. Na tym etapie
+  nie ma logowania na innych urządzeniach ani odzyskiwania konta.
+- Kliknięcie salda lub powrót do aplikacji odświeża stan z backendu.
+  Brak połączenia nie przyznaje lokalnych punktów ani wyglądów.
+- Dawny zapis `lajkonik.rewards.v1` pozostaje nietknięty jako dane prototypu,
+  ale nie jest używany ani automatycznie importowany do salda serwerowego.
 - Z punktu wybierz **Zaplanuj trasę**, następnie pieszo, rower, komunikację,
   samochód albo profil dla wózka. Bez GPS początek to jawnie oznaczony podgląd
   z Dworca Głównego. Wybrana trasa pojawia się na mapie.
@@ -39,7 +48,9 @@ komputer może zwracać przybliżoną pozycję zamiast GPS.
 
 Ślad spaceru pozostaje w pamięci aplikacji. Przy planowaniu trasy aplikacja
 przekazuje początek i cel do backendu, a backend do routera Valhalla/OSM.
-Backend nie zapisuje historii lokalizacji. Publiczne dane Krakowa dostarczają
+Backend nie zapisuje śladu ani współrzędnych odczytów GPS. Dla nagrody sprawdza
+przesłaną pozycję i zapisuje odwiedzony punkt oraz czas obrotu.
+Publiczne dane Krakowa dostarczają
 infrastruktury rowerowej, nawierzchni, prac drogowych i rozkładów ZTP.
 Dostępność dla wózka nie jest gwarantowana: brak pełnego miejskiego wykazu
 barier. Dane prac drogowych nie są danymi o aktualnych korkach.
@@ -48,9 +59,22 @@ Sesja działa podczas otwarcia aplikacji; nie jest to śledzenie w tle.
 
 ## Weryfikacja
 
+Mapa i kolekcja pobierają katalog punktów z `/game/state`. Katalog zawiera 20
+miejsc w Krakowie, także na Kazimierzu, w Podgórzu i Nowej Hucie. Przycisk
+„Pokaż wszystkie punkty” dopasowuje widok do całej listy; „Podążaj za mną”
+przywraca śledzenie pozycji. Nowe wpisy w backendzie pojawiają się po odświeżeniu
+stanu konta, bez dopisywania znaczników w aplikacji.
+
 ```sh
 flutter analyze
 flutter test
+```
+
+Pełny test z uruchomionym backendem i bazą (tworzy osobne konto gościa z nagrodą
+demo, nie modyfikuje kont użytkowników):
+
+```sh
+flutter test --dart-define=RUN_LIVE_GAME_TEST=true test/live_game_test.dart
 ```
 
 Testy obejmują aktualizacje GPS, filtrowanie niedokładnych odczytów, uprawnienia,

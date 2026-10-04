@@ -52,7 +52,7 @@ class _PointSheetState extends State<PointSheet>
       return;
     }
     if (!mounted) return;
-    final awarded = widget.rewards.claim(
+    final awarded = await widget.rewards.claim(
       place: widget.place.name,
       target: widget.place.position,
       demo: widget.tracker.demo,
@@ -60,6 +60,7 @@ class _PointSheetState extends State<PointSheet>
       accuracy: widget.tracker.accuracy,
       lastFix: widget.tracker.lastFix,
     );
+    if (!mounted) return;
     setState(() {
       spinning = false;
       won = awarded;
@@ -177,7 +178,7 @@ class _PointSheetState extends State<PointSheet>
                   ? 'Obracamy punkt…'
                   : available
                   ? 'Przesuń dysk w bok lub użyj przycisku.'
-                  : reason!,
+                  : reason ?? 'Potwierdzamy operację…',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: won || available
@@ -200,13 +201,18 @@ class _PointSheetState extends State<PointSheet>
                 ),
               ),
             ),
-          if (!widget.rewards.persistent)
-            const Padding(
+          if (widget.rewards.error != null)
+            Padding(
               padding: EdgeInsets.only(top: 10),
               child: Text(
-                'Zapis lokalny niedostępny — punkty pozostaną tylko w tej sesji.',
-                style: TextStyle(fontSize: 12),
+                widget.rewards.error!,
+                style: const TextStyle(fontSize: 12),
               ),
+            ),
+          if (widget.rewards.error != null)
+            TextButton(
+              onPressed: widget.rewards.busy ? null : widget.rewards.load,
+              child: const Text('Odśwież punkty'),
             ),
           const SizedBox(height: 18),
           SizedBox(

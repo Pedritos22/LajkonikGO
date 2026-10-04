@@ -30,7 +30,8 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.rewards});
+  final RewardsController? rewards;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -53,18 +54,19 @@ class MyApp extends StatelessWidget {
         ),
       ),
     ),
-    home: const ExplorePage(),
+    home: ExplorePage(rewards: rewards),
   );
 }
 
 class ExplorePage extends StatefulWidget {
-  const ExplorePage({super.key});
+  const ExplorePage({super.key, this.rewards});
+  final RewardsController? rewards;
   @override
   State<ExplorePage> createState() => _ExplorePageState();
 }
 
 class _ExplorePageState extends State<ExplorePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TrackingController tracker;
   final map = MapController();
   late final AnimationController motion;
@@ -74,7 +76,8 @@ class _ExplorePageState extends State<ExplorePage>
   LatLng from = krakow;
   LatLng to = krakow;
   int selectedTab = 0;
-  final RewardsController rewards = RewardsController();
+  late final RewardsController rewards;
+  List<Landmark> get _landmarks => rewards.loaded ? rewards.places : landmarks;
   final RoutingService routing = RoutingService();
   PlannedRoute? planned;
   Landmark? routePlace;
@@ -86,9 +89,11 @@ class _ExplorePageState extends State<ExplorePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     tracker = TrackingController()..addListener(_onTracking);
+    rewards = widget.rewards ?? RewardsController();
     rewards.addListener(_onRewards);
-    unawaited(rewards.load());
+    if (!rewards.loaded) unawaited(rewards.load());
     motion =
         AnimationController(
           vsync: this,
@@ -141,12 +146,33 @@ class _ExplorePageState extends State<ExplorePage>
     if (tracker.position == null && ready) map.move(krakow, 16);
   }
 
+  void _showAllPlaces() {
+    if (!ready || _landmarks.isEmpty) return;
+    motion.stop();
+    tracker.setFollow(false);
+    map.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(
+          _landmarks.map((place) => place.position).toList(),
+        ),
+        padding: const EdgeInsets.fromLTRB(60, 100, 70, 210),
+        maxZoom: 16,
+      ),
+    );
+  }
+
   void _onRewards() {
     if (mounted) setState(() {});
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(rewards.load());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     tracker.removeListener(_onTracking);
     tracker.dispose();
     ++routeGeneration;
@@ -237,7 +263,7 @@ class _ExplorePageState extends State<ExplorePage>
                 ),
                 child: const Row(
                   children: [
-                    Text('Wypróbuj spacer demo'),
+                    Expanded(child: Text('Wypróbuj spacer demo')),
                     SizedBox(width: 7),
                     Icon(Icons.arrow_forward, size: 16),
                   ],
@@ -287,29 +313,33 @@ class _ExplorePageState extends State<ExplorePage>
     ),
   );
 
-  Widget _brand() => const Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(Icons.explore_rounded, size: 35, color: green),
-      SizedBox(width: 10),
-      Text(
-        'lajkonik',
-        style: TextStyle(
-          fontSize: 26,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -1.3,
+  Widget _brand() => const FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerLeft,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.explore_rounded, size: 35, color: green),
+        SizedBox(width: 10),
+        Text(
+          'lajkonik',
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1.3,
+          ),
         ),
-      ),
-      SizedBox(width: 5),
-      Text(
-        'GO',
-        style: TextStyle(
-          fontSize: 13,
-          color: green,
-          fontWeight: FontWeight.w900,
+        SizedBox(width: 5),
+        Text(
+          'GO',
+          style: TextStyle(
+            fontSize: 13,
+            color: green,
+            fontWeight: FontWeight.w900,
+          ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
 
   Widget _nav(int index, IconData icon, String label) => Padding(
@@ -326,12 +356,14 @@ class _ExplorePageState extends State<ExplorePage>
             children: [
               Icon(icon, size: 21, color: selectedTab == index ? lime : muted),
               const SizedBox(width: 13),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: selectedTab == index ? Colors.white : ink,
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: selectedTab == index ? Colors.white : ink,
+                  ),
                 ),
               ),
             ],
@@ -385,10 +417,19 @@ class _ExplorePageState extends State<ExplorePage>
             Colors.white,
           ),
         const SizedBox(width: 12),
-        _pill(
-          Icons.stars_rounded,
-          '${rewards.balance(tracker.demo)}${tracker.demo ? ' demo' : ''}',
-          const Color(0xFFEBEFDF),
+        Tooltip(
+          message: rewards.error ?? 'Odśwież punkty i wygląd',
+          child: InkWell(
+            onTap: rewards.busy ? null : rewards.load,
+            borderRadius: BorderRadius.circular(30),
+            child: _pill(
+              rewards.error == null
+                  ? Icons.stars_rounded
+                  : Icons.cloud_off_outlined,
+              '${rewards.loaded ? rewards.balance(tracker.demo) : '—'}${tracker.demo ? ' demo' : ''}',
+              const Color(0xFFEBEFDF),
+            ),
+          ),
         ),
         IconButton(
           onPressed: _help,
@@ -521,7 +562,7 @@ class _ExplorePageState extends State<ExplorePage>
                   ),
                 MarkerLayer(
                   markers: [
-                    for (final landmark in landmarks)
+                    for (final landmark in _landmarks)
                       Marker(
                         point: landmark.position,
                         width: 64,
@@ -760,7 +801,7 @@ class _ExplorePageState extends State<ExplorePage>
               right: 25,
               child: _pill(
                 Icons.auto_awesome_outlined,
-                'Punkty przygody · 4',
+                'Punkty przygody · ${_landmarks.length}',
                 Colors.white,
               ),
             ),
@@ -776,6 +817,11 @@ class _ExplorePageState extends State<ExplorePage>
               decoration: _card(),
               child: Column(
                 children: [
+                  IconButton(
+                    onPressed: _showAllPlaces,
+                    tooltip: 'Pokaż wszystkie punkty',
+                    icon: const Icon(Icons.zoom_out_map_rounded, color: green),
+                  ),
                   if (wide)
                     IconButton(
                       onPressed: () => map.rotate(0),
@@ -999,7 +1045,7 @@ class _ExplorePageState extends State<ExplorePage>
           ],
         ] else ...[
           SkinCard(rewards: rewards, demo: tracker.demo),
-          for (final place in landmarks)
+          for (final place in _landmarks)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Material(

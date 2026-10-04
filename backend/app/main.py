@@ -11,6 +11,7 @@ from app.city_data import city
 from app.geo import meters
 from app.road_routes import road_plan
 from app.transit import transit
+from app.game import router as game_router
 
 app = FastAPI(title="LajkonikGO API")
 app.add_middleware(
@@ -18,8 +19,9 @@ app.add_middleware(
     allow_origins=[v for v in os.getenv('FRONTEND_ORIGINS', '').split(',') if v],
     allow_origin_regex=r'https?://(localhost|127\.0\.0\.1)(:\d+)?',
     allow_methods=['GET', 'POST'],
-    allow_headers=['Content-Type'],
+    allow_headers=['Content-Type', 'Authorization'],
 )
+app.include_router(game_router)
 
 
 class Coordinate(BaseModel):

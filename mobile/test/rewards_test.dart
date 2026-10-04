@@ -1,87 +1,145 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:lajkonik_go/game_api.dart';
 import 'package:lajkonik_go/rewards.dart';
 import 'package:lajkonik_go/tracking.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'game_fixture.dart';
+
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
-    'Lajkonik costs 50 once, stays separate from demo and persists selection',
+    'Spin displays server points, sends location and keeps demo separate',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final now = DateTime(2026, 10, 4, 12);
-      final rewards = RewardsController(now: () => now);
+      var now = DateTime.utc(2026, 10, 4, 12);
+      final server = FakeGameServer(now: () => now)..spinReward = 33;
+      final rewards = RewardsController(api: server.api(), now: () => now);
       await rewards.load();
-      expect(rewards.buyLajkonik(false), isFalse);
-      expect(rewards.selectLajkonik(false, true), isFalse);
-      rewards.claim(
+      Future<bool> claim(bool demo) => rewards.claim(
         place: 'Sukiennice',
         target: krakow,
-        demo: false,
+        demo: demo,
         position: krakow,
         accuracy: 5,
         lastFix: now,
       );
-      expect(rewards.buyLajkonik(true), isFalse);
-      expect(rewards.buyLajkonik(false), isTrue);
+      expect(await claim(true), isTrue);
+      expect(rewards.balance(true), 33);
       expect(rewards.balance(false), 0);
-      expect(rewards.buyLajkonik(false), isFalse);
-      expect(rewards.usesLajkonik(false), isTrue);
-      expect(rewards.ownsLajkonik(true), isFalse);
-      rewards.selectLajkonik(false, false);
-      await rewards.flush();
+      expect(await claim(true), isFalse);
+      expect(await claim(false), isTrue);
+      final body = jsonDecode(server.requests.last.body) as Map;
+      expect(body['place_key'], 'sukiennice');
+      expect(body['latitude'], krakow.latitude);
+      expect(body['profile'], 'gps');
+      expect(body.containsKey('points'), isFalse);
+      expect(body['request_id'], matches(RegExp(r'^[0-9a-f-]{36}$')));
+      now = now.add(const Duration(minutes: 5));
+      expect(await claim(true), isTrue);
+      expect(rewards.balance(true), 66);
       rewards.dispose();
-
-      final restored = RewardsController();
-      await restored.load();
-      expect(restored.ownsLajkonik(false), isTrue);
-      expect(restored.usesLajkonik(false), isFalse);
-      expect(restored.balance(false), 0);
-      expect(restored.selectLajkonik(false, true), isTrue);
-      expect(restored.balance(false), 0);
-      await restored.flush();
-      restored.dispose();
-      final selected = RewardsController();
-      await selected.load();
-      expect(selected.usesLajkonik(false), isTrue);
-      selected.dispose();
     },
   );
 
-  test('A nearby spin earns points once, enforces cooldown and keeps demo separate', () async {
-    SharedPreferences.setMockInitialValues({});
-    var now = DateTime(2026, 10, 4, 12);
-    final rewards = RewardsController(now: () => now);
+  test('Purchase and selected skin reload from server; only session token stays local', () async {
+    final server = FakeGameServer();
+    server.points['gps'] = 50;
+    var rewards = RewardsController(api: server.api());
     await rewards.load();
-    bool claim(bool demo) => rewards.claim(
-      place: 'Sukiennice',
-      target: krakow,
-      demo: demo,
-      position: krakow,
-      accuracy: 5,
-      lastFix: now,
-    );
-    expect(claim(true), isTrue);
-    expect(rewards.balance(true), 50);
+    expect(await rewards.buyLajkonik(true), isFalse);
+    expect(await rewards.buyLajkonik(false), isTrue);
     expect(rewards.balance(false), 0);
-    expect(claim(true), isFalse);
-    expect(rewards.balance(true), 50);
-    expect(claim(false), isTrue);
-    expect(rewards.balance(false), 50);
-    now = now.add(const Duration(minutes: 5));
-    expect(claim(true), isTrue);
-    expect(rewards.balance(true), 100);
+    expect(await rewards.buyLajkonik(false), isFalse);
+    expect(await rewards.selectLajkonik(false, false), isTrue);
+    rewards.dispose();
+    rewards = RewardsController(api: server.api());
+    await rewards.load();
+    expect(server.sessionsCreated, 1);
+    expect(rewards.ownsLajkonik(false), isTrue);
+    expect(rewards.usesLajkonik(false), isFalse);
+    expect(await rewards.selectLajkonik(false, true), isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getKeys(), {'lajkonik.session.v1:http://test-api'});
     rewards.dispose();
   });
 
   test(
-    'Distant, stale, imprecise and missing positions cannot earn points',
+    'Rejected purchase cannot locally spend points or unlock a skin',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final now = DateTime(2026, 10, 4, 12);
-      final rewards = RewardsController(now: () => now);
+      final server = FakeGameServer()..rejectPurchase = true;
+      server.points['gps'] = 50;
+      final rewards = RewardsController(api: server.api());
       await rewards.load();
-      bool claim({
+      expect(await rewards.buyLajkonik(false), isFalse);
+      expect(rewards.balance(false), 50);
+      expect(rewards.ownsLajkonik(false), isFalse);
+      expect(rewards.error, 'Serwer odrzucił zakup');
+      rewards.dispose();
+    },
+  );
+
+  test(
+    'Unreachable backend does not restore legacy browser points or skins',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'lajkonik.rewards.v1': jsonEncode({
+          'balances': {'gps': 9999},
+          'claims': {},
+          'lajkonikOwned': ['gps'],
+        }),
+      });
+      final rewards = RewardsController(
+        api: GameApi(client: MockClient((_) async => http.Response('{}', 503))),
+      );
+      await rewards.load();
+      expect(rewards.loaded, isFalse);
+      expect(rewards.balance(false), 0);
+      expect(rewards.ownsLajkonik(false), isFalse);
+      expect(rewards.error, isNotNull);
+      rewards.dispose();
+    },
+  );
+
+  test(
+    'Retry after a lost reply uses exactly the same operation ID and body',
+    () async {
+      final requests = <String>[];
+      final server = FakeGameServer();
+      final api = GameApi(
+        token: 'test-session-token',
+        client: MockClient((request) async {
+          if (request.url.path.endsWith('/state')) {
+            return FakeGameServer.response(server.state, 200);
+          }
+          requests.add(request.body);
+          if (requests.length == 1) throw http.ClientException('lost reply');
+          return FakeGameServer.response({'state': server.state}, 200);
+        }),
+      );
+      await api.load();
+      await api.mutate('skins/select', {
+        'profile': 'gps',
+        'skin_id': 'default',
+      });
+      expect(requests.length, 2);
+      expect(requests.first, requests.last);
+      api.dispose();
+    },
+  );
+
+  test(
+    'Distant, stale, imprecise or missing fixes do not request a spin',
+    () async {
+      final now = DateTime.utc(2026, 10, 4, 12);
+      final server = FakeGameServer(now: () => now);
+      final rewards = RewardsController(api: server.api(), now: () => now);
+      await rewards.load();
+      Future<bool> claim({
         LatLng? position = krakow,
         double accuracy = 5,
         DateTime? fix,
@@ -93,12 +151,18 @@ void main() {
         accuracy: accuracy,
         lastFix: fix ?? now,
       );
-      expect(claim(position: const LatLng(50.0649, 19.9411)), isFalse);
-      expect(claim(accuracy: 60), isFalse);
-      expect(claim(accuracy: double.nan), isFalse);
-      expect(claim(fix: now.subtract(const Duration(seconds: 31))), isFalse);
-      expect(claim(position: null), isFalse);
-      expect(rewards.balance(false), 0);
+      expect(await claim(position: const LatLng(50.0649, 19.9411)), isFalse);
+      expect(await claim(accuracy: 60), isFalse);
+      expect(await claim(accuracy: double.nan), isFalse);
+      expect(
+        await claim(fix: now.subtract(const Duration(seconds: 31))),
+        isFalse,
+      );
+      expect(await claim(position: null), isFalse);
+      expect(
+        server.requests.where((r) => r.url.path == '/game/spins'),
+        isEmpty,
+      );
       rewards.dispose();
     },
   );

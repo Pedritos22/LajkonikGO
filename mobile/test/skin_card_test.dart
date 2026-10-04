@@ -1,10 +1,10 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lajkonik_go/rewards.dart';
 import 'package:lajkonik_go/skin_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'game_fixture.dart';
 
 void main() {
   testWidgets(
@@ -14,13 +14,10 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      SharedPreferences.setMockInitialValues({
-        'lajkonik.rewards.v1': jsonEncode({
-          'balances': {'gps': 50},
-          'claims': {},
-        }),
-      });
-      final rewards = RewardsController();
+      SharedPreferences.setMockInitialValues({});
+      final server = FakeGameServer();
+      server.points['gps'] = 50;
+      final rewards = RewardsController(api: server.api());
       await rewards.load();
       await tester.pumpWidget(
         MaterialApp(
@@ -45,7 +42,6 @@ void main() {
       expect(rewards.balance(false), 0);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
-      await rewards.flush();
       rewards.dispose();
     },
   );

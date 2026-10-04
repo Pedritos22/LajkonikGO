@@ -9,11 +9,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lajkonik_go/main.dart';
+import 'package:lajkonik_go/rewards.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'game_fixture.dart';
 
 void main() {
   testWidgets('Explorer opens successfully', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    SharedPreferences.setMockInitialValues({});
+    final rewards = RewardsController(api: FakeGameServer().api());
+    await rewards.load();
+    await tester.pumpWidget(MyApp(rewards: rewards));
 
     await tester.pump();
     expect(find.text('lajkonik'), findsOneWidget);

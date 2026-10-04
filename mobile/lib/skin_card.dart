@@ -14,7 +14,7 @@ class SkinCard extends StatelessWidget {
     builder: (context, _) {
       final owned = rewards.ownsLajkonik(demo);
       final selected = rewards.usesLajkonik(demo);
-      final missing = RewardsController.lajkonikCost - rewards.balance(demo);
+      final missing = rewards.lajkonikPrice - rewards.balance(demo);
       return Container(
         margin: const EdgeInsets.only(bottom: 24),
         padding: const EdgeInsets.all(20),
@@ -51,7 +51,9 @@ class SkinCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        selected ? 'Lajkonik jest Twoim znacznikiem pozycji.' : 'Zmień znacznik swojej pozycji w Lajkonika. Odblokowanie na stałe za 50 punktów.',
+                        selected
+                            ? 'Lajkonik jest Twoim znacznikiem pozycji.'
+                            : 'Zmień znacznik swojej pozycji w Lajkonika. Odblokowanie na stałe za ${rewards.lajkonikPrice} punktów.',
                       ),
                     ],
                   ),
@@ -60,10 +62,10 @@ class SkinCard extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              '${rewards.balance(demo)} pkt${demo ? ' demo' : ''} · ${owned ? 'Wygląd odblokowany' : 'Koszt: 50 pkt'}',
+              '${rewards.loaded ? rewards.balance(demo) : '—'} pkt${demo ? ' demo' : ''} · ${owned ? 'Wygląd odblokowany' : 'Koszt: ${rewards.lajkonikPrice} pkt'}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            if (!owned && missing > 0)
+            if (rewards.loaded && !owned && missing > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
@@ -75,12 +77,16 @@ class SkinCard extends StatelessWidget {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed:
-                    !rewards.loaded || (!owned && missing > 0) || selected
+                    !rewards.loaded ||
+                        rewards.busy ||
+                        (!owned && missing > 0) ||
+                        selected
                     ? null
-                    : () {
+                    : () async {
                         if (owned) {
-                          rewards.selectLajkonik(demo, true);
-                        } else if (rewards.buyLajkonik(demo)) {
+                          await rewards.selectLajkonik(demo, true);
+                        } else if (await rewards.buyLajkonik(demo) &&
+                            context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
@@ -102,14 +108,16 @@ class SkinCard extends StatelessWidget {
                       ? 'Lajkonik wybrany'
                       : owned
                       ? 'Użyj Lajkonika'
-                      : 'Odblokuj · 50 pkt',
+                      : 'Odblokuj · ${rewards.lajkonikPrice} pkt',
                 ),
               ),
             ),
             if (selected)
               Center(
                 child: TextButton(
-                  onPressed: () => rewards.selectLajkonik(demo, false),
+                  onPressed: rewards.busy
+                      ? null
+                      : () => rewards.selectLajkonik(demo, false),
                   child: const Text('Użyj zwykłego znacznika'),
                 ),
               ),
@@ -121,13 +129,23 @@ class SkinCard extends StatelessWidget {
                   style: TextStyle(fontSize: 11),
                 ),
               ),
-            if (!rewards.persistent)
+            if (rewards.busy)
               const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+            if (rewards.error != null)
+              Padding(
                 padding: EdgeInsets.only(top: 10),
                 child: Text(
-                  'Zapis lokalny niedostępny — zakup i wygląd pozostaną tylko w tej sesji.',
-                  style: TextStyle(fontSize: 11),
+                  rewards.error!,
+                  style: const TextStyle(fontSize: 11),
                 ),
+              ),
+            if (rewards.error != null)
+              TextButton(
+                onPressed: rewards.busy ? null : rewards.load,
+                child: const Text('Spróbuj ponownie'),
               ),
           ],
         ),

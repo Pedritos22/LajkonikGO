@@ -1,65 +1,161 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import 'game_api.dart';
+import 'places.dart';
+
+/// An in-memory view of the server account. No balances or inventory in local storage.
 class RewardsController extends ChangeNotifier {
-  RewardsController({DateTime Function()? now}) : now = now ?? DateTime.now;
+  RewardsController({GameApi? api, DateTime Function()? now})
+    : api = api ?? GameApi(),
+      now = now ?? DateTime.now;
+  final GameApi api;
   final DateTime Function() now;
-  final Map<String, int> balances = {};
-  final Map<String, DateTime> claims = {};
-  final Set<String> lajkonikOwned = {};
-  final Set<String> lajkonikSelected = {};
+  final Map<String, int> _balances = {};
+  final Map<String, DateTime> _claims = {};
+  final Set<String> _owned = {}, _selected = {};
+  final Map<String, Map<String, dynamic>> _places = {};
   bool loaded = false;
-  bool persistent = true;
+  bool busy = false;
   bool _disposed = false;
-  Future<void> _saving = Future.value();
+  String? error;
+  Duration _clockOffset = Duration.zero;
+  int lajkonikPrice = 50;
+  Duration _cooldown = const Duration(minutes: 5);
   static const radius = 45.0;
   static const reward = 50;
   static const lajkonikCost = 50;
   static const cooldown = Duration(minutes: 5);
 
-  String _key(String place, bool demo) => '${demo ? 'demo' : 'gps'}:$place';
-  int balance(bool demo) => balances[demo ? 'demo' : 'gps'] ?? 0;
-  bool ownsLajkonik(bool demo) => lajkonikOwned.contains(demo ? 'demo' : 'gps');
-  bool usesLajkonik(bool demo) =>
-      lajkonikSelected.contains(demo ? 'demo' : 'gps');
-
-  bool buyLajkonik(bool demo) {
-    if (!loaded || ownsLajkonik(demo) || balance(demo) < lajkonikCost) {
-      return false;
-    }
-    final profile = demo ? 'demo' : 'gps';
-    balances[profile] = balance(demo) - lajkonikCost;
-    lajkonikOwned.add(profile);
-    lajkonikSelected.add(profile);
-    notifyListeners();
-    _save();
-    return true;
-  }
-
-  bool selectLajkonik(bool demo, bool selected) {
-    if (!loaded || (selected && !ownsLajkonik(demo))) return false;
-    final profile = demo ? 'demo' : 'gps';
-    if (selected) {
-      lajkonikSelected.add(profile);
-    } else {
-      lajkonikSelected.remove(profile);
-    }
-    notifyListeners();
-    _save();
-    return true;
-  }
-
-  Future<void> flush() => _saving;
+  String _profile(bool demo) => demo ? 'demo' : 'gps';
+  DateTime get _serverNow => now().add(_clockOffset);
+  int balance(bool demo) => _balances[_profile(demo)] ?? 0;
+  List<Landmark> get places =>
+      _places.values.map(Landmark.fromJson).toList(growable: false);
+  bool ownsLajkonik(bool demo) => _owned.contains(_profile(demo));
+  bool usesLajkonik(bool demo) => _selected.contains(_profile(demo));
   bool visited(String place, bool demo) =>
-      claims.containsKey(_key(place, demo));
+      _claims.containsKey('${_profile(demo)}:$place');
+
+  void _emit() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _apply(Map<String, dynamic> data) {
+    final profiles = data['profiles'] as Map;
+    final places = (data['places'] as List)
+        .map((p) => Map<String, dynamic>.from(p))
+        .toList();
+    _places.clear();
+    for (final place in places) {
+      _places[place['name'] as String] = place;
+    }
+    _balances.clear();
+    _claims.clear();
+    _owned.clear();
+    _selected.clear();
+    for (final profile in ['gps', 'demo']) {
+      final value = profiles[profile] as Map;
+      _balances[profile] = value['points'] as int;
+      if ((value['owned_skins'] as List).contains('lajkonik')) {
+        _owned.add(profile);
+      }
+      if (value['selected_skin'] == 'lajkonik') _selected.add(profile);
+      for (final entry in (value['claims'] as Map).entries) {
+        final place = places.where((p) => p['key'] == entry.key).firstOrNull;
+        if (place != null) {
+          _claims['$profile:${place['name']}'] = DateTime.parse(
+            entry.value as String,
+          );
+        }
+      }
+    }
+    lajkonikPrice =
+        ((data['skins'] as List).firstWhere(
+                  (s) => s['id'] == 'lajkonik',
+                )['cost']
+                as num)
+            .toInt();
+    _cooldown = Duration(seconds: data['cooldown_s'] as int);
+    _clockOffset = DateTime.parse(data['server_time'] as String)
+        .difference(now());
+    loaded = true;
+    error = null;
+  }
+
+  Future<void> load() async {
+    if (busy || _disposed) return;
+    busy = true;
+    error = null;
+    _emit();
+    try {
+      final data = await api.load();
+      if (!_disposed) _apply(data);
+    } catch (exception) {
+      if (!_disposed) error = _message(exception);
+    } finally {
+      busy = false;
+      _emit();
+    }
+  }
+
+  String _message(Object exception) => exception is StateError
+      ? exception.message.toString()
+      : 'Nie udało się pobrać punktów i wyglądu. Spróbuj ponownie.';
+
+  Future<bool> _mutate(String path, Map<String, dynamic> data) async {
+    if (!loaded || busy || _disposed) return false;
+    busy = true;
+    error = null;
+    _emit();
+    try {
+      final response = await api.mutate(path, data);
+      if (_disposed) return false;
+      _apply(response);
+      return true;
+    } catch (exception) {
+      if (!_disposed) error = _message(exception);
+      // The server may have committed even if the reply was lost. Refresh without
+      // inventing a local award or charge; keep the error visible for the user.
+      try {
+        final response = await api.load();
+        if (!_disposed) {
+          final message = error;
+          _apply(response);
+          error = message;
+        }
+      } catch (_) {
+        /* Keep the last confirmed state. */
+      }
+      return false;
+    } finally {
+      busy = false;
+      _emit();
+    }
+  }
+
+  Future<bool> buyLajkonik(bool demo) {
+    if (!loaded || ownsLajkonik(demo) || balance(demo) < lajkonikPrice) {
+      return Future.value(false);
+    }
+    return _mutate('skins/purchase', {
+      'profile': _profile(demo),
+      'skin_id': 'lajkonik',
+    });
+  }
+
+  Future<bool> selectLajkonik(bool demo, bool selected) {
+    if (selected && !ownsLajkonik(demo)) return Future.value(false);
+    return _mutate('skins/select', {
+      'profile': _profile(demo),
+      'skin_id': selected ? 'lajkonik' : 'default',
+    });
+  }
 
   Duration remaining(String place, bool demo) {
-    final last = claims[_key(place, demo)];
+    final last = _claims['${_profile(demo)}:$place'];
     if (last == null) return Duration.zero;
-    final value = cooldown - now().difference(last);
+    final value = _cooldown - _serverNow.difference(last);
     return value.isNegative ? Duration.zero : value;
   }
 
@@ -71,7 +167,10 @@ class RewardsController extends ChangeNotifier {
     required double accuracy,
     required DateTime? lastFix,
   }) {
-    if (!loaded) return 'Wczytujemy Twoje punkty…';
+    if (!loaded) return error ?? 'Łączymy się z Twoim kontem…';
+    if (busy) return 'Potwierdzamy operację…';
+    final point = _places[place];
+    if (point == null) return 'Punkt przygody nie jest dostępny.';
     if (position == null || lastFix == null) {
       return 'Włącz lokalizację lub spacer demo.';
     }
@@ -81,9 +180,14 @@ class RewardsController extends ChangeNotifier {
     if (now().difference(lastFix) > const Duration(seconds: 30)) {
       return 'Odśwież pozycję, żeby obrócić punkt.';
     }
-    if (const Distance().as(LengthUnit.Meter, position, target) + accuracy >
-        radius) {
-      return 'Podejdź bliżej — punkt jest dostępny w promieniu 45 m.';
+    final serverTarget = LatLng(
+      (point['latitude'] as num).toDouble(),
+      (point['longitude'] as num).toDouble(),
+    );
+    if (const Distance().as(LengthUnit.Meter, position, serverTarget) +
+            accuracy >
+        (point['radius_m'] as num)) {
+      return 'Podejdź bliżej — punkt jest dostępny w promieniu ${point['radius_m'].round()} m.';
     }
     final wait = remaining(place, demo);
     if (wait > Duration.zero) {
@@ -92,7 +196,7 @@ class RewardsController extends ChangeNotifier {
     return null;
   }
 
-  bool claim({
+  Future<bool> claim({
     required String place,
     required LatLng target,
     required bool demo,
@@ -109,72 +213,22 @@ class RewardsController extends ChangeNotifier {
           lastFix: lastFix,
         ) !=
         null) {
-      return false;
+      return Future.value(false);
     }
-    claims[_key(place, demo)] = now();
-    final profile = demo ? 'demo' : 'gps';
-    balances[profile] = balance(demo) + reward;
-    notifyListeners();
-    _save();
-    return true;
-  }
-
-  Future<void> load() async {
-    try {
-      final store = await SharedPreferences.getInstance();
-      final raw = store.getString('lajkonik.rewards.v1');
-      if (raw != null) {
-        final data = jsonDecode(raw) as Map<String, dynamic>;
-        for (final entry in (data['balances'] as Map).entries) {
-          if (entry.value is int && entry.value >= 0) {
-            balances[entry.key as String] = entry.value as int;
-          }
-        }
-        for (final entry in (data['claims'] as Map).entries) {
-          final date = DateTime.tryParse(entry.value.toString());
-          if (date != null) claims[entry.key as String] = date;
-        }
-        for (final profile in ['gps', 'demo']) {
-          if ((data['lajkonikOwned'] as List? ?? []).contains(profile)) {
-            lajkonikOwned.add(profile);
-            if ((data['lajkonikSelected'] as List? ?? []).contains(profile)) {
-              lajkonikSelected.add(profile);
-            }
-          }
-        }
-      }
-    } catch (_) {
-      persistent = false;
-    }
-    loaded = true;
-    if (!_disposed) notifyListeners();
-  }
-
-  void _save() {
-    final value = jsonEncode({
-      'balances': balances,
-      'lajkonikOwned': lajkonikOwned.toList(),
-      'lajkonikSelected': lajkonikSelected.toList(),
-      'claims': claims.map(
-        (key, value) => MapEntry(key, value.toIso8601String()),
-      ),
-    });
-    _saving = _saving.then((_) async {
-      try {
-        final store = await SharedPreferences.getInstance();
-        if (!await store.setString('lajkonik.rewards.v1', value)) {
-          throw StateError('Save failed');
-        }
-      } catch (_) {
-        persistent = false;
-        if (!_disposed) notifyListeners();
-      }
+    return _mutate('spins', {
+      'profile': _profile(demo),
+      'place_key': _places[place]!['key'],
+      'latitude': position!.latitude,
+      'longitude': position.longitude,
+      'accuracy': accuracy,
+      'recorded_at': lastFix!.toUtc().toIso8601String(),
     });
   }
 
   @override
   void dispose() {
     _disposed = true;
+    api.dispose();
     super.dispose();
   }
 }

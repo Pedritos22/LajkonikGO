@@ -9,7 +9,9 @@ python -m venv .venv
 ```
 
 Na Linux/macOS użyj `.venv/bin/python`. Można też uruchomić backend przez
-Compose z głównego katalogu projektu. Baza danych nie jest potrzebna do tras.
+Compose z głównego katalogu projektu. Baza danych nie jest potrzebna do tras,
+ale jest wymagana do kont i nagród. Compose automatycznie stosuje migracje;
+dla uruchomienia poza Compose ustaw `DATABASE_URL` i wykonaj `alembic upgrade head`.
 
 `GET /city-data` zwraca status źródeł, aktualne roboty, liczbę odcinków
 rowerowych i alerty. `POST /routes` przyjmuje JSON:
@@ -67,9 +69,60 @@ ostatniego odcinka pieszo; trasa nie jest pozwoleniem na wjazd ani gwarancją pa
   zgłaszane routerowi do ominięcia i sprawdzane po wyznaczeniu trasy.
 
 Historia GPS nie jest utrwalana. Router otrzymuje współrzędne początku/celu.
-Nagrody frontendu są lokalne i wymagają osobnej weryfikacji w wersji produkcyjnej.
+Nagrody są zapisane w PostgreSQL i przyznawane wyłącznie przez backend.
+
+## Konta, punkty i wyglądy
+
+Migracja `ab7409c82e11` dodaje profile GPS/demo, katalog wyglądów, posiadane
+wyglądy, ostatnie obroty, dziennik operacji oraz sesje gości. Dodaje cztery
+kuratorowane punkty przygody i Lajkonika za 50 pkt. Istniejące salda `users.points`
+są zachowane w profilu GPS; saldo GPS jest z nim synchronizowane.
+
+- `POST /game/sessions`: tworzy konto gościa, zwraca losowy token i stan.
+  Baza przechowuje tylko SHA-256 tokenu. Frontend przechowuje token sesji,
+  natomiast saldo i wyglądy są tylko tymczasowym widokiem odpowiedzi serwera.
+- `GET /game/state`: saldo obu profili, wyglądy, odwiedzone punkty, katalog,
+  czas serwera. Autoryzacja nagłówkiem `Authorization: Bearer <token>`.
+- `POST /game/spins`: `request_id` UUID, `profile` (`gps`/`demo`), `place_key`,
+  `latitude`, `longitude`, `accuracy`, `recorded_at` ISO 8601 ze strefą.
+  Serwer sprawdza świeżość do 30 s (maks. 5 s w przyszłości), dokładność do
+  25 m oraz dystans wraz z dokładnością w zasięgu punktu. Nagroda pochodzi
+  z bazy. Ponowny obrót tego punktu po 300 s według czasu serwera.
+- `POST /game/skins/purchase`: `request_id`, `profile`, `skin_id: "lajkonik"`.
+  Koszt pochodzi z bazy, zakup od razu wybiera wygląd. Kolejny zakup już
+  posiadanego wyglądu nie pobiera punktów.
+- `POST /game/skins/select`: `request_id`, `profile`, `skin_id` (`lajkonik`
+  lub `default`). Wybór wymaga posiadania wyglądu, jest darmowy.
+
+Każda zmiana blokuje wiersz profilu w transakcji. Saldo, nagroda/zakup i historia
+operacji zatwierdzają się razem. Ten sam `request_id` z tą samą treścią odtwarza
+wynik bez ponownego naliczenia; inna treść pod tym identyfikatorem jest odrzucana.
+GPS i demo mają osobne salda i ekwipunek. Historie GPS dodatkowo trafiają do `visits`.
+
+Konta gościa są związane z zachowanym kluczem sesji; nie ma jeszcze logowania
+ani odzyskiwania dostępu na innym urządzeniu. Dawne dane lokalnego prototypu
+nie są automatycznie przyjmowane jako potwierdzone saldo. Nie są usuwane
+z przeglądarki. Pozycję zgłasza klient: ta walidacja nie dowodzi autentyczności
+GPS i nie stanowi zabezpieczenia przed fałszowaniem lokalizacji.
+
+Wdrożenie wymaga HTTPS dla kluczy sesji. `/health` pozostaje kontrolą procesu,
+nie kontrolą dostępności bazy. Błędy połączenia nie przyznają lokalnych nagród.
+
+Testy transakcji wykonują migrację i zapytania w osobnym, losowym schemacie
+PostgreSQL, usuwanym po testach; nie czyszczą danych aplikacji:
+
+```sh
+docker compose exec -T -e RUN_POSTGRES_TESTS=1 backend python -m unittest discover -s tests -v
+```
 
 ## Testy
+
+Migracja `c291bd804ef6` rozszerza katalog z 4 do 20 punktów przygody w Krakowie.
+Są to ręcznie dobrane lokalizacje LajkonikGO, a nie import danych miejskich
+ani potwierdzenie dostępności tych miejsc. Każdy punkt ma promień 45 m i nagrodę
+50 punktów. `/game/state` udostępnia również opis i kategorię do wyświetlenia
+na mapie. Wycofanie migracji dezaktywuje nowe punkty, zachowując historię wizyt
+i nagród.
 
 ```sh
 .venv/Scripts/python -m unittest discover -s tests -v
