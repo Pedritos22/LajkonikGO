@@ -24,6 +24,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('Kolekcja'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Sukiennice'));
       await tester.tap(find.text('Sukiennice'));
       await tester.pumpAndSettle();
       expect(find.text('Obróć punkt · +50 pkt'), findsOneWidget);

@@ -13,6 +13,8 @@ import 'rewards.dart';
 import 'point_sheet.dart';
 import 'routing.dart';
 import 'route_sheet.dart';
+import 'lajkonik_avatar.dart';
+import 'skin_card.dart';
 
 const ink = Color(0xFF283B2D);
 const green = Color(0xFF476C42);
@@ -571,8 +573,8 @@ class _ExplorePageState extends State<ExplorePage>
                         height: 88,
                         child: Semantics(
                           label: tracker.demo
-                              ? 'Pozycja demonstracyjna'
-                              : 'Twoja pozycja',
+                              ? 'Pozycja demonstracyjna${rewards.usesLajkonik(true) ? ' · Lajkonik' : ''}'
+                              : 'Twoja pozycja${rewards.usesLajkonik(false) ? ' · Lajkonik' : ''}',
                           child: Container(
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
@@ -581,31 +583,35 @@ class _ExplorePageState extends State<ExplorePage>
                                 color: green.withValues(alpha: .24),
                               ),
                             ),
-                            padding: const EdgeInsets.all(19),
-                            child: Transform.rotate(
-                              angle: tracker.heading * math.pi / 180,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: green,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.white,
-                                    width: 4,
-                                  ),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x30476C42),
-                                      blurRadius: 15,
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.navigation_rounded,
-                                  color: lime,
-                                  size: 25,
-                                ),
-                              ),
+                            padding: EdgeInsets.all(
+                              rewards.usesLajkonik(tracker.demo) ? 6 : 19,
                             ),
+                            child: rewards.usesLajkonik(tracker.demo)
+                                ? const LajkonikAvatar(size: 76)
+                                : Transform.rotate(
+                                    angle: tracker.heading * math.pi / 180,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: green,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 4,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Color(0x30476C42),
+                                            blurRadius: 15,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.navigation_rounded,
+                                        color: lime,
+                                        size: 25,
+                                      ),
+                                    ),
+                                  ),
                           ),
                         ),
                       ),
@@ -992,6 +998,7 @@ class _ExplorePageState extends State<ExplorePage>
               ),
           ],
         ] else ...[
+          SkinCard(rewards: rewards, demo: tracker.demo),
           for (final place in landmarks)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),

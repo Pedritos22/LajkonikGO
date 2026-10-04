@@ -9,16 +9,50 @@ class RewardsController extends ChangeNotifier {
   final DateTime Function() now;
   final Map<String, int> balances = {};
   final Map<String, DateTime> claims = {};
+  final Set<String> lajkonikOwned = {};
+  final Set<String> lajkonikSelected = {};
   bool loaded = false;
   bool persistent = true;
   bool _disposed = false;
   Future<void> _saving = Future.value();
   static const radius = 45.0;
   static const reward = 50;
+  static const lajkonikCost = 50;
   static const cooldown = Duration(minutes: 5);
 
   String _key(String place, bool demo) => '${demo ? 'demo' : 'gps'}:$place';
   int balance(bool demo) => balances[demo ? 'demo' : 'gps'] ?? 0;
+  bool ownsLajkonik(bool demo) => lajkonikOwned.contains(demo ? 'demo' : 'gps');
+  bool usesLajkonik(bool demo) =>
+      lajkonikSelected.contains(demo ? 'demo' : 'gps');
+
+  bool buyLajkonik(bool demo) {
+    if (!loaded || ownsLajkonik(demo) || balance(demo) < lajkonikCost) {
+      return false;
+    }
+    final profile = demo ? 'demo' : 'gps';
+    balances[profile] = balance(demo) - lajkonikCost;
+    lajkonikOwned.add(profile);
+    lajkonikSelected.add(profile);
+    notifyListeners();
+    _save();
+    return true;
+  }
+
+  bool selectLajkonik(bool demo, bool selected) {
+    if (!loaded || (selected && !ownsLajkonik(demo))) return false;
+    final profile = demo ? 'demo' : 'gps';
+    if (selected) {
+      lajkonikSelected.add(profile);
+    } else {
+      lajkonikSelected.remove(profile);
+    }
+    notifyListeners();
+    _save();
+    return true;
+  }
+
+  Future<void> flush() => _saving;
   bool visited(String place, bool demo) =>
       claims.containsKey(_key(place, demo));
 
@@ -100,6 +134,14 @@ class RewardsController extends ChangeNotifier {
           final date = DateTime.tryParse(entry.value.toString());
           if (date != null) claims[entry.key as String] = date;
         }
+        for (final profile in ['gps', 'demo']) {
+          if ((data['lajkonikOwned'] as List? ?? []).contains(profile)) {
+            lajkonikOwned.add(profile);
+            if ((data['lajkonikSelected'] as List? ?? []).contains(profile)) {
+              lajkonikSelected.add(profile);
+            }
+          }
+        }
       }
     } catch (_) {
       persistent = false;
@@ -111,6 +153,8 @@ class RewardsController extends ChangeNotifier {
   void _save() {
     final value = jsonEncode({
       'balances': balances,
+      'lajkonikOwned': lajkonikOwned.toList(),
+      'lajkonikSelected': lajkonikSelected.toList(),
       'claims': claims.map(
         (key, value) => MapEntry(key, value.toIso8601String()),
       ),

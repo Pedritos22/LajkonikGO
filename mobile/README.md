@@ -26,6 +26,10 @@ komputer może zwracać przybliżoną pozycję zamiast GPS.
   z marginesem dokładności mieścić się w 45 m. Kolejny obrót po 5 minutach.
 - Nagrody zapisują się lokalnie. Nie są zabezpieczonym systemem rankingowym;
   produkcyjne nagrody wymagają kont i weryfikacji po stronie serwera.
+- W **Kolekcji** można za 50 punktów odblokować na stałe znacznik Lajkonika.
+  Zakup od razu wybiera nowy wygląd. Powrót do zwykłego znacznika i ponowny
+  wybór Lajkonika są darmowe. Wyglądy demo i GPS są oddzielne; zapis lokalny
+  zachowuje zakup, wybór oraz pozostałe punkty po odświeżeniu.
 - Z punktu wybierz **Zaplanuj trasę**, następnie pieszo, rower, komunikację,
   samochód albo profil dla wózka. Bez GPS początek to jawnie oznaczony podgląd
   z Dworca Głównego. Wybrana trasa pojawia się na mapie.
