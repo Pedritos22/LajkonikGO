@@ -23,6 +23,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+
+def include_name(name, type_, parent_names):
+    # PostGIS exposes extension tables through search_path. Alembic manages only
+    # application tables and must never propose dropping spatial/tiger data.
+    return type_ != 'table' or name in target_metadata.tables
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -60,6 +66,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    provided = config.attributes.get('connection')
+    if provided is not None:
+        context.configure(connection=provided, target_metadata=target_metadata, include_name=include_name)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -68,7 +81,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, include_name=include_name
         )
 
         with context.begin_transaction():

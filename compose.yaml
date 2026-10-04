@@ -10,6 +10,9 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ROUTING_API_KEY: ${ROUTING_API_KEY:-}
       DATA_API_KEY: ${DATA_API_KEY:-}
+      ROUTING_BASE_URL: ${ROUTING_BASE_URL:-https://valhalla1.openstreetmap.de}
+      CITY_ACCESSIBILITY_URL: ${CITY_ACCESSIBILITY_URL:-}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-}
     ports:
       - "${API_BIND_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:

@@ -4,3 +4,6 @@ SQLAlchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
 redis>=5.0,<8.0
 alembic>=1.13,<2.0
+httpx>=0.28,<1.0
+gtfs-realtime-bindings>=3.0,<4.0
+tzdata>=2026.1
